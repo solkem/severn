@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Severn LS Edge AI</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            margin-bottom: 20px;
+        }
+
+        .connect-section {
+            text-align: center;
+        }
+
+        #connectButton {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            font-size: 1.2em;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: bold;
+        }
+
+        #connectButton:hover:not(:disabled) {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        #connectButton:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 10px;
+            font-weight: bold;
+            text-align: center;
+        }
+
+        .status.disconnected {
+            background: #fee;
+            color: #c33;
+        }
+
+        .status.connecting {
+            background: #ffeaa7;
+            color: #d63031;
+        }
+
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .sensor-display {
+            display: none;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .sensor-display.active {
+            display: grid;
+        }
+
+        .sensor-card {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+        }
+
+        .sensor-card h3 {
+            margin-bottom: 15px;
+            color: #667eea;
+        }
+
+        .sensor-value {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #333;
+            margin: 5px 0;
+        }
+
+        .info-box {
+            background: #e7f3ff;
+            border-left: 4px solid #2196F3;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+
+        @media (max-width: 600px) {
+            .sensor-display {
+                grid-template-columns: 1fr;
+            }
+
+            h1 {
+                font-size: 2em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🤖 Severn LS Edge AI</h1>
+            <p class="subtitle">Connect your Arduino BLE Sense and collect sensor data!</p>
+        </header>
+
+        <div class="card">
+            <div class="info-box">
+                <strong>📱 Before you start:</strong> Make sure your Arduino BLE Sense is powered on and nearby.
+                Click the connect button below to find your device!
+            </div>
+
+            <div class="connect-section">
+                <button id="connectButton">Connect to Arduino</button>
+                <div id="statusDisplay" class="status disconnected">
+                    Not Connected
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="sensor-display" id="sensorDisplay">
+                <div class="sensor-card">
+                    <h3>📊 Accelerometer</h3>
+                    <div class="sensor-value">X: <span id="accelX">--</span></div>
+                    <div class="sensor-value">Y: <span id="accelY">--</span></div>
+                    <div class="sensor-value">Z: <span id="accelZ">--</span></div>
+                </div>
+                <div class="sensor-card">
+                    <h3>👋 Proximity</h3>
+                    <div class="sensor-value">Distance: <span id="proximity">--</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Web Bluetooth API Configuration
+        const DEVICE_NAME_PREFIX = 'Arduino';
+
+        // BLE Service and Characteristic UUIDs
+        const ACCELEROMETER_SERVICE_UUID = '00001101-0000-1000-8000-00805f9b34fb';
+        const PROXIMITY_SERVICE_UUID = '00001102-0000-1000-8000-00805f9b34fb';
+
+        // We'll define characteristic UUIDs when we build the Arduino sketch
+        const ACCEL_CHARACTERISTIC_UUID = '00002101-0000-1000-8000-00805f9b34fb';
+        const PROXIMITY_CHARACTERISTIC_UUID = '00002102-0000-1000-8000-00805f9b34fb';
+
+        // Global variables
+        let bluetoothDevice = null;
+        let gattServer = null;
+
+        // DOM elements
+        const connectButton = document.getElementById('connectButton');
+        const statusDisplay = document.getElementById('statusDisplay');
+        const sensorDisplay = document.getElementById('sensorDisplay');
+
+        // Update status display
+        function updateStatus(message, state) {
+            statusDisplay.textContent = message;
+            statusDisplay.className = `status ${state}`;
+        }
+
+        // Connect button click handler
+        connectButton.addEventListener('click', async () => {
+            try {
+                updateStatus('Searching for devices...', 'connecting');
+                connectButton.disabled = true;
+
+                // Request Bluetooth device
+                bluetoothDevice = await navigator.bluetooth.requestDevice({
+                    filters: [
+                        { namePrefix: DEVICE_NAME_PREFIX }
+                    ],
+                    optionalServices: [
+                        ACCELEROMETER_SERVICE_UUID,
+                        PROXIMITY_SERVICE_UUID
+                    ]
+                });
+
+                updateStatus('Connecting to device...', 'connecting');
+
+                // Connect to GATT server
+                gattServer = await bluetoothDevice.gatt.connect();
+
+                updateStatus('Connected to ' + bluetoothDevice.name, 'connected');
+                connectButton.textContent = 'Disconnect';
+                connectButton.disabled = false;
+                sensorDisplay.classList.add('active');
+
+                // Handle disconnection
+                bluetoothDevice.addEventListener('gattserverdisconnected', onDisconnected);
+
+                // TODO: Next step - connect to services and read characteristics
+
+            } catch (error) {
+                console.error('Connection failed:', error);
+                updateStatus('Connection failed: ' + error.message, 'disconnected');
+                connectButton.disabled = false;
+            }
+        });
+
+        // Handle disconnection
+        function onDisconnected() {
+            updateStatus('Device disconnected', 'disconnected');
+            connectButton.textContent = 'Connect to Arduino';
+            connectButton.disabled = false;
+            sensorDisplay.classList.remove('active');
+            bluetoothDevice = null;
+            gattServer = null;
+        }
+
+        // Check Web Bluetooth support
+        if (!navigator.bluetooth) {
+            updateStatus('Web Bluetooth not supported in this browser', 'disconnected');
+            connectButton.disabled = true;
+            alert('Web Bluetooth is not supported in this browser. Please use Chrome, Edge, or Opera.');
+        }
+    </script>
+</body>
+</html>
