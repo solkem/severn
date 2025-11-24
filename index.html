@@ -211,8 +211,14 @@
             statusDisplay.className = `status ${state}`;
         }
 
-        // Connect button click handler
+        // Connect/Disconnect button click handler
         connectButton.addEventListener('click', async () => {
+            // Check if we're already connected - if so, disconnect
+            if (bluetoothDevice && bluetoothDevice.gatt.connected) {
+                disconnect();
+                return;
+            }
+
             try {
                 updateStatus('Searching for devices...', 'connecting');
                 connectButton.disabled = true;
@@ -241,7 +247,8 @@
                 // Handle disconnection
                 bluetoothDevice.addEventListener('gattserverdisconnected', onDisconnected);
 
-                // TODO: Next step - connect to services and read characteristics
+                // Connect to services and start reading sensor data
+                await connectToSensors();
 
             } catch (error) {
                 console.error('Connection failed:', error);
@@ -250,14 +257,83 @@
             }
         });
 
-        // Handle disconnection
+        // Manually disconnect from device
+        function disconnect() {
+            if (bluetoothDevice && bluetoothDevice.gatt.connected) {
+                console.log('Disconnecting from device...');
+                bluetoothDevice.gatt.disconnect();
+                // onDisconnected() will be called automatically
+            }
+        }
+
+        // Handle disconnection (called automatically when device disconnects)
         function onDisconnected() {
+            console.log('Device disconnected');
             updateStatus('Device disconnected', 'disconnected');
             connectButton.textContent = 'Connect to Arduino';
             connectButton.disabled = false;
             sensorDisplay.classList.remove('active');
+
+            // Reset sensor display values
+            document.getElementById('accelX').textContent = '--';
+            document.getElementById('accelY').textContent = '--';
+            document.getElementById('accelZ').textContent = '--';
+            document.getElementById('proximity').textContent = '--';
+
             bluetoothDevice = null;
             gattServer = null;
+        }
+
+        // Connect to sensors and start receiving data
+        async function connectToSensors() {
+            try {
+                // Get accelerometer service and characteristic
+                const accelService = await gattServer.getPrimaryService(ACCELEROMETER_SERVICE_UUID);
+                const accelCharacteristic = await accelService.getCharacteristic(ACCEL_CHARACTERISTIC_UUID);
+
+                // Get proximity service and characteristic
+                const proximityService = await gattServer.getPrimaryService(PROXIMITY_SERVICE_UUID);
+                const proximityCharacteristic = await proximityService.getCharacteristic(PROXIMITY_CHARACTERISTIC_UUID);
+
+                // Start notifications for accelerometer
+                await accelCharacteristic.startNotifications();
+                accelCharacteristic.addEventListener('characteristicvaluechanged', handleAccelData);
+
+                // Start notifications for proximity
+                await proximityCharacteristic.startNotifications();
+                proximityCharacteristic.addEventListener('characteristicvaluechanged', handleProximityData);
+
+                console.log('Sensor notifications started');
+            } catch (error) {
+                console.error('Error connecting to sensors:', error);
+                updateStatus('Error reading sensors: ' + error.message, 'disconnected');
+            }
+        }
+
+        // Handle accelerometer data
+        function handleAccelData(event) {
+            const value = event.target.value;
+
+            // Read 3 floats (12 bytes total: 4 bytes per float)
+            const x = value.getFloat32(0, true);  // true = little endian
+            const y = value.getFloat32(4, true);
+            const z = value.getFloat32(8, true);
+
+            // Update display (round to 2 decimal places)
+            document.getElementById('accelX').textContent = x.toFixed(2);
+            document.getElementById('accelY').textContent = y.toFixed(2);
+            document.getElementById('accelZ').textContent = z.toFixed(2);
+        }
+
+        // Handle proximity data
+        function handleProximityData(event) {
+            const value = event.target.value;
+
+            // Read 1 byte (0-255)
+            const proximity = value.getUint8(0);
+
+            // Update display
+            document.getElementById('proximity').textContent = proximity;
         }
 
         // Check Web Bluetooth support

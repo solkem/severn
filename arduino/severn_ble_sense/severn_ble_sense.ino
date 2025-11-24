@@ -6,14 +6,14 @@
 
   Required Libraries (install via Arduino Library Manager):
   - ArduinoBLE
-  - Arduino_LSM9DS1
+  - Arduino_BMI270_BMM150 (for Rev2 IMU)
   - Arduino_APDS9960
 
-  Board: Arduino Nano 33 BLE Sense
+  Board: Arduino Nano 33 BLE Sense Rev2
 */
 
 #include <ArduinoBLE.h>
-#include <Arduino_LSM9DS1.h>
+#include <Arduino_BMI270_BMM150.h>  // Rev2 uses BMI270 (accel/gyro) + BMM150 (mag)
 #include <Arduino_APDS9960.h>
 
 // BLE Service and Characteristic UUIDs (must match web page)
@@ -50,18 +50,37 @@ String deviceName;
 void setup() {
   Serial.begin(9600);
 
-  // Wait for serial connection (optional, comment out for standalone operation)
-  // while (!Serial);
+  // Wait for serial connection (comment out for standalone operation)
+  while (!Serial);
 
   Serial.println("Severn LS Edge AI - Arduino BLE Sense");
   Serial.println("Initializing sensors...");
+  Serial.println();
 
   // Initialize IMU (accelerometer, gyroscope, magnetometer)
+  Serial.print("Attempting to initialize IMU (BMI270/BMM150 for Rev2)... ");
   if (!IMU.begin()) {
-    Serial.println("Failed to initialize IMU!");
+    Serial.println("FAILED!");
+    Serial.println();
+    Serial.println("========================================");
+    Serial.println("ERROR: IMU Initialization Failed");
+    Serial.println("========================================");
+    Serial.println();
+    Serial.println("Possible causes:");
+    Serial.println("1. Library not installed");
+    Serial.println("   -> Install 'Arduino_BMI270_BMM150' via Library Manager");
+    Serial.println();
+    Serial.println("2. I2C bus communication issue");
+    Serial.println("   -> Try pressing reset button");
+    Serial.println("   -> Try re-uploading the sketch");
+    Serial.println();
+    Serial.println("3. Wrong board selected in Arduino IDE");
+    Serial.println("   -> Make sure 'Arduino Nano 33 BLE' is selected");
+    Serial.println("========================================");
     while (1);
   }
-  Serial.println("✓ IMU initialized");
+  Serial.println("SUCCESS!");
+  Serial.println("✓ IMU (Rev2) initialized");
 
   // Initialize Proximity sensor
   if (!APDS.begin()) {
